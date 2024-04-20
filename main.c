@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <math.h>
 
 #define QUEUESIZE 10
 #define NUM_PRODUCERS 3
@@ -74,10 +75,13 @@ void *producer(void *q) {
       pthread_cond_wait(fifo->notFull, fifo->mut);
     }
     gettimeofday(&wfn.time_enqueued, NULL);
+    printf("Produced task %d.\n", i);
+
     queueAdd(fifo, wfn);
     pthread_cond_signal(fifo->notEmpty);
     pthread_mutex_unlock(fifo->mut);
   }
+
   return NULL;
 }
 
@@ -98,17 +102,26 @@ void *consumer(void *q) {
 
     gettimeofday(&now, NULL);
     delay = (now.tv_sec - wfn.time_enqueued.tv_sec) * 1000000L + (now.tv_usec - wfn.time_enqueued.tv_usec);
-    printf("Task delay: %ld microseconds.\n", delay);
+    printf("Consumed task %d with delay: %ld microseconds.\n",*(int *)(wfn.arg) , delay);
 
     wfn.work(wfn.arg);
     free(wfn.arg);
   }
+
   return NULL;
 }
 
 void *taskFunction(void *arg) {
-  int num = *(int *)arg;
-  printf("Executing task for input %d.\n", num);
+  int base_angle = *(int *)arg;
+  double radians, sine_val;
+
+  printf("Calculating sine for 10 angles starting from %d degrees.\n", base_angle);
+  for (int i = 0; i < 10; i++) {
+    radians = (base_angle + i * 10) * M_PI / 180.0; // Convert degrees to radians
+    sine_val = sin(radians); // Calculate sine
+    printf("sin(%d°) = %.2f\n", base_angle + i * 10, sine_val);
+  }
+
   return NULL;
 }
 
