@@ -1,2 +1,7 @@
 /cmake-build-debug
 /.idea
+/.vscode
+/build
+/main.dSYM
+
+main

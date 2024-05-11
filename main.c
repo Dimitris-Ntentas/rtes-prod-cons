@@ -7,11 +7,12 @@
 #define QUEUESIZE 10
 #define NUM_PRODUCERS 3
 #define NUM_CONSUMERS 5
-#define NUM_TASKS 100
+#define NUM_TASKS 100 // tasks each producer is going to run
 
 typedef struct {
   void *(*work)(void *);
   void *arg;
+  void *id;
   struct timeval time_enqueued;
 } workFunction;
 
@@ -19,6 +20,7 @@ typedef struct {
   workFunction buf[QUEUESIZE];
   long head, tail;
   int full, empty;
+  int done;
   pthread_mutex_t *mut;
   pthread_cond_t *notFull, *notEmpty;
 } queue;
@@ -52,10 +54,18 @@ int main() {
   for (int i = 0; i < NUM_PRODUCERS; i++) {
     pthread_join(pro[i], NULL);
   }
+
+  // After all producers are done, indicate that production is finished
+  pthread_mutex_lock(fifo->mut);
+  fifo->done = 1;
+  pthread_cond_broadcast(fifo->notEmpty); // Wake up all waiting consumers
+  pthread_mutex_unlock(fifo->mut);
+
   for (int i = 0; i < NUM_CONSUMERS; i++) {
     pthread_join(con[i], NULL);
   }
 
+  printf("All tasks completed\n");
   queueDelete(fifo);
 
   return 0;
@@ -64,18 +74,23 @@ int main() {
 void *producer(void *q) {
   queue *fifo = (queue *)q;
   workFunction wfn;
+  int id = rand() % 100;
 
   for (int i = 0; i < NUM_TASKS; i++) {
     wfn.work = taskFunction;
     wfn.arg = malloc(sizeof(int));  // Example task: calculating sine of an angle
     *(int *)(wfn.arg) = i;         // Assign task an angle or similar simple value
+    wfn.id = malloc(sizeof(int));
+    *(int *)(wfn.id) = id;        // Assign the origin id (of the producer) to the process
+    
 
     pthread_mutex_lock(fifo->mut);
     while (fifo->full) {
+      printf("Waiting...\n");
       pthread_cond_wait(fifo->notFull, fifo->mut);
     }
     gettimeofday(&wfn.time_enqueued, NULL);
-    printf("Produced task %d.\n", i);
+    printf("Producer with id: %d produced task %d.\n", id, i);
 
     queueAdd(fifo, wfn);
     pthread_cond_signal(fifo->notEmpty);
@@ -93,8 +108,12 @@ void *consumer(void *q) {
 
   while (1) {
     pthread_mutex_lock(fifo->mut);
-    while (fifo->empty) {
+    while (fifo->empty && !fifo->done) {
       pthread_cond_wait(fifo->notEmpty, fifo->mut);
+    }
+    if (fifo->empty && fifo->done) {
+        pthread_mutex_unlock(fifo->mut);
+        break;
     }
     queueDel(fifo, &wfn);
     pthread_cond_signal(fifo->notFull);
@@ -102,8 +121,9 @@ void *consumer(void *q) {
 
     gettimeofday(&now, NULL);
     delay = (now.tv_sec - wfn.time_enqueued.tv_sec) * 1000000L + (now.tv_usec - wfn.time_enqueued.tv_usec);
-    printf("Consumed task %d with delay: %ld microseconds.\n",*(int *)(wfn.arg) , delay);
+    printf("Consumed task %d from %d with delay: %ld microseconds.\n",*(int *)(wfn.arg), *(int *)(wfn.id), delay);
 
+    free(wfn.id);
     wfn.work(wfn.arg);
     free(wfn.arg);
   }
@@ -115,11 +135,11 @@ void *taskFunction(void *arg) {
   int base_angle = *(int *)arg;
   double radians, sine_val;
 
-  printf("Calculating sine for 10 angles starting from %d degrees.\n", base_angle);
+//   printf("Calculating sine for 10 angles starting from %d degrees (task %d).\n", base_angle, base_angle);
   for (int i = 0; i < 10; i++) {
     radians = (base_angle + i * 10) * M_PI / 180.0; // Convert degrees to radians
     sine_val = sin(radians); // Calculate sine
-    printf("sin(%d°) = %.2f\n", base_angle + i * 10, sine_val);
+    // printf("sin(%d°) = %.2f\n", base_angle + i * 10, sine_val);
   }
 
   return NULL;
@@ -135,6 +155,7 @@ queue *queueInit(void) {
   q->full = 0;
   q->head = 0;
   q->tail = 0;
+  q->done = 0;
   q->mut = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t));
   pthread_mutex_init(q->mut, NULL);
   q->notFull = (pthread_cond_t *)malloc(sizeof(pthread_cond_t));
