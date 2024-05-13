@@ -44,6 +44,15 @@ int main() {
     exit(1);
   }
 
+  FILE *fp = fopen("results.csv", "w"); // Open the file to write headers
+  if (fp == NULL) {
+    perror("Failed to open file");
+    return 1;
+  }
+
+  fprintf(fp, "Task Number,Producer ID,Delay (microseconds)\n");
+  fclose(fp); 
+
   for (int i = 0; i < NUM_PRODUCERS; i++) {
     pthread_create(&pro[i], NULL, producer, fifo);
   }
@@ -74,7 +83,7 @@ int main() {
 void *producer(void *q) {
   queue *fifo = (queue *)q;
   workFunction wfn;
-  int id = rand() % 100;
+  int id = rand() % 100 + 1;
 
   for (int i = 0; i < NUM_TASKS; i++) {
     wfn.work = taskFunction;
@@ -108,6 +117,7 @@ void *consumer(void *q) {
 
   while (1) {
     pthread_mutex_lock(fifo->mut);
+    FILE *fp = fopen("results.csv", "a");
     while (fifo->empty && !fifo->done) {
       pthread_cond_wait(fifo->notEmpty, fifo->mut);
     }
@@ -121,6 +131,8 @@ void *consumer(void *q) {
 
     gettimeofday(&now, NULL);
     delay = (now.tv_sec - wfn.time_enqueued.tv_sec) * 1000000L + (now.tv_usec - wfn.time_enqueued.tv_usec);
+    fprintf(fp, "%d,%d,%ld\n", *(int *)(wfn.arg), *(int *)(wfn.id), delay);
+    fclose(fp);
     printf("Consumed task %d from %d with delay: %ld microseconds.\n",*(int *)(wfn.arg), *(int *)(wfn.id), delay);
 
     free(wfn.id);
